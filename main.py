@@ -1,4 +1,5 @@
 import time
+import sqlite3
 import requests
 import threading
 from telegram import Bot
@@ -7,6 +8,9 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Conve
 # Telegram Bot Token
 TELEGRAM_BOT_TOKEN = "7750210181:AAG0mJEmQ5M_b9IILqylyLZK-tw0Vvta_wg"
 CHAT_ID = "-1002256384134"
+
+from keep_alive import keep_alive
+keep_alive()
 
 # Initialize Telegram Bot
 telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
@@ -433,6 +437,184 @@ monitor_thread.start()
 # Telegram bot command handlers
 updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
 dp = updater.dispatcher
+import threading
+import sqlite3
+import time
+from telegram import Bot
+import requests
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+
+# Telegram Bot Token and Chat ID
+TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
+CHAT_ID = "YOUR_CHAT_ID"
+
+# Initialize Telegram Bot
+telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
+
+# Database setup
+conn = sqlite3.connect("trades.db", check_same_thread=False)
+cursor = conn.cursor()
+
+# Ensure table structure is correct and columns exist for TP hits
+cursor.execute("PRAGMA table_info(trades);")
+columns = [column[1] for column in cursor.fetchall()]
+for i in range(1, 11):
+    if f"tp{i}_hit" not in columns:
+        cursor.execute(f"ALTER TABLE trades ADD COLUMN tp{i}_hit INTEGER DEFAULT 0;")
+conn.commit()
+
+# Function to get the live price from Binance
+def get_live_price(symbol):
+    url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol.upper()}"
+    try:
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        return float(data["price"])
+    except:
+        return None  # API error
+
+# Send message to Telegram
+def send_to_telegram(message):
+    telegram_bot.send_message(chat_id=CHAT_ID, text=message)
+
+# Monitor Trades for TP hits or SL
+def monitor_trades():
+    while True:
+        cursor.execute("SELECT id, pair, trade_type, stop_loss, take_profits, tp1_hit, tp2_hit, tp3_hit, tp4_hit, tp5_hit, tp6_hit, tp7_hit, tp8_hit, tp9_hit, tp10_hit FROM trades WHERE status = 'Active'")
+        trades = cursor.fetchall()
+
+        for trade in trades:
+            trade_id, pair, trade_type, stop_loss, take_profits, *tp_hits = trade
+            live_price = get_live_price(pair)
+
+            if live_price is None:
+                continue  # Skip if API fails
+
+            # Check for Stop Loss (SL) hit
+            if (trade_type == "LONG" and live_price <= stop_loss) or (trade_type == "SHORT" and live_price >= stop_loss):
+                send_to_telegram(f"❌ {pair} trade has hit stop loss at {live_price}.")
+                cursor.execute("UPDATE trades SET status = 'Closed' WHERE id = ?", (trade_id,))
+                conn.commit()
+                continue
+
+            # Check for TP hits
+            take_profits = eval(take_profits)  # Convert string back to list
+            for idx, tp in enumerate(take_profits):
+                if (trade_type == "LONG" and live_price >= tp and not tp_hits[idx]) or \
+                   (trade_type == "SHORT" and live_price <= tp and not tp_hits[idx]):
+                    # Update TP hit status
+                    cursor.execute(f"UPDATE trades SET tp{idx+1}_hit = 1 WHERE id = ?", (trade_id,))
+                    conn.commit()
+                    send_to_telegram(f"🎯 {pair} TP{idx+1} hit at {live_price}!")
+                    break  # Stop checking once one TP is hit
+
+        time.sleep(60)  # Check every minute
+
+# Start the monitoring thread
+monitoring_thread = threading.Thread(target=monitor_trades, daemon=True)
+monitoring_thread.start()
+
+# Conversation flow for creating a trade
+def start(update, context):
+    update.message.reply_text("Welcome! Use /create_trade to set up a trade signal.")
+
+def create_trade(update, context):
+    update.message.reply_text("📋 Enter trading pair (e.g., BTCUSDT):")
+    return "WAITING_FOR_PAIR"
+
+def handle_pair(update, context):
+    pair = update.message.text.upper()
+    live_price = get_live_price(pair)
+    if live_price is None:
+        update.message.reply_text("⚠️ Invalid pair or API error. Try again.")
+        return "WAITING_FOR_PAIR"
+
+    update.message.reply_text(f"✅ Pair: {pair}\n📊 Live Price: {live_price}\nEnter Trade Type (Long/Short):")
+    return "WAITING_FOR_TYPE"
+
+def handle_type(update, context):
+    trade_type = update.message.text.upper()
+    if trade_type not in ["LONG", "SHORT"]:
+        update.message.reply_text("⚠️ Invalid input. Enter Long or Short.")
+        return "WAITING_FOR_TYPE"
+
+    update.message.reply_text("✅ Enter Order Type (Limit/Market):")
+    return "WAITING_FOR_ORDER_TYPE"
+
+def handle_order_type(update, context):
+    order_type = update.message.text.lower()
+    if order_type not in ["limit", "market"]:
+        update.message.reply_text("⚠️ Enter 'Limit' or 'Market'.")
+        return "WAITING_FOR_ORDER_TYPE"
+
+    update.message.reply_text("✅ Enter Entry Price:")
+    return "WAITING_FOR_ENTRY"
+
+def handle_entry(update, context):
+    try:
+        entry_price = float(update.message.text)
+        update.message.reply_text("✅ Enter Stop Loss Price:")
+        return "WAITING_FOR_SL"
+    except ValueError:
+        update.message.reply_text("⚠️ Enter a valid price.")
+        return "WAITING_FOR_ENTRY"
+
+def handle_stop_loss(update, context):
+    try:
+        stop_loss = float(update.message.text)
+        update.message.reply_text("✅ Enter Take Profit Prices (separate multiple TPs with commas, e.g., 50000,51000,52000):")
+        return "WAITING_FOR_TP"
+    except ValueError:
+        update.message.reply_text("⚠️ Enter a valid price.")
+        return "WAITING_FOR_SL"
+
+def handle_tp(update, context):
+    try:
+        tp_text = update.message.text
+        tp_list = [float(tp.strip()) for tp in tp_text.split(",") if tp.strip()]
+        if len(tp_list) < 1 or len(tp_list) > 10:
+            update.message.reply_text("⚠️ You must enter between 1 and 10 take profit prices.")
+            return "WAITING_FOR_TP"
+
+        update.message.reply_text(f"📢 Trade setup complete: {tp_list}. Confirm?")
+        return "WAITING_FOR_CONFIRMATION"
+    except ValueError:
+        update.message.reply_text("⚠️ Enter valid prices separated by commas.")
+        return "WAITING_FOR_TP"
+
+def handle_confirmation(update, context):
+    if update.message.text.lower() == "yes":
+        send_to_telegram(f"Trade confirmed!")
+        update.message.reply_text("✅ Trade confirmed.")
+        return ConversationHandler.END
+    elif update.message.text.lower() == "no":
+        update.message.reply_text("❌ Trade canceled.")
+        return ConversationHandler.END
+    else:
+        update.message.reply_text("⚠️ Please enter 'Yes' or 'No'.")
+        return "WAITING_FOR_CONFIRMATION"
+
+# Set up the Updater and Dispatcher
+updater = Updater(token=TELEGRAM_BOT_TOKEN, use_context=True)
+dispatcher = updater.dispatcher
+
+# Add command handlers
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(ConversationHandler(
+    entry_points=[CommandHandler('create_trade', create_trade)],
+    states={
+        "WAITING_FOR_PAIR": [MessageHandler(Filters.text, handle_pair)],
+        "WAITING_FOR_TYPE": [MessageHandler(Filters.text, handle_type)],
+        "WAITING_FOR_ORDER_TYPE": [MessageHandler(Filters.text, handle_order_type)],
+        "WAITING_FOR_ENTRY": [MessageHandler(Filters.text, handle_entry)],
+        "WAITING_FOR_SL": [MessageHandler(Filters.text, handle_stop_loss)],
+        "WAITING_FOR_TP": [MessageHandler(Filters.text, handle_tp)],
+        "WAITING_FOR_CONFIRMATION": [MessageHandler(Filters.text, handle_confirmation)],
+    },
+    fallbacks=[],
+))
+
+updater.start_polling()
 
 # Conversation handler for creating trade
 conv_handler = ConversationHandler(
