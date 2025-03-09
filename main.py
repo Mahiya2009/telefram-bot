@@ -9,9 +9,6 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Conve
 TELEGRAM_BOT_TOKEN = "7750210181:AAG0mJEmQ5M_b9IILqylyLZK-tw0Vvta_wg"
 CHAT_ID = "-1002256384134"
 
-from keep_alive import keep_alive
-keep_alive()
-
 # Initialize Telegram Bot
 telegram_bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
