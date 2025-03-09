@@ -1,5 +1,4 @@
 import time
-import sqlite3
 import requests
 import threading
 from telegram import Bot
