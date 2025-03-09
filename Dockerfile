@@ -10,6 +10,19 @@ FROM python:3.9-slim
 # Set the working directory to /app
 WORKDIR /app
 
+RUN /opt/venv/bin/pip install -v --no-cache-dir -r requirements.txt
+
+RUN /opt/venv/bin/pip install -v --no-cache-dir -r requirements.txt
+
+RUN /opt/venv/bin/pip install -v --no-cache-dir python-telegram-bot==12.8
+
+RUN /opt/venv/bin/pip install -v --no-cache-dir requests==2.26.0
+
+FROM python:3.9-slim
+
+RUN /opt/venv/bin/pip install --upgrade pip
+
+
 # Install system dependencies required by some Python packages (e.g., python-telegram-bot)
 RUN apt-get update && apt-get install -y \
     libssl-dev \
