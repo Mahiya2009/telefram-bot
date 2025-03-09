@@ -1,3 +1,9 @@
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    libffi-dev \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 # Use the official Python 3.9 image as the base image
 FROM python:3.9-slim
 
