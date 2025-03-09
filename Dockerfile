@@ -7,8 +7,14 @@ WORKDIR /app
 # Copy the current directory contents into the container
 COPY . /app/
 
-# Install system dependencies for building Python packages
-RUN apt-get update && apt-get install -y python3-venv && apt-get clean
+# Install system dependencies for building Python packages (including dependencies needed for pip)
+RUN apt-get update && apt-get install -y \
+    python3-venv \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    python3-dev \
+    && apt-get clean
 
 # Create a virtual environment and install dependencies
 RUN python3 -m venv /opt/venv \
